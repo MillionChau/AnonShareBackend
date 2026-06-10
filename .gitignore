@@ -1,0 +1,6 @@
+node_modules/
+dist/
+coverage/
+postman/
+.env
+POSTMAN.md
