@@ -22,6 +22,6 @@ RUN npm ci --omit=dev
 
 COPY --from=builder /app/dist ./dist
 
-EXPOSE 8000
+EXPOSE 5340
 
 CMD ["node", "dist/main.js"]

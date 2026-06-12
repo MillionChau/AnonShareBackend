@@ -1,32 +1,15 @@
-version: "3.9"
-
 services:
   web:
     build:
       context: .
       dockerfile: Dockerfile
 
+    container_name: anon-share-backend
+
     ports:
       - "5340:5340"
 
-    environment:
-      - MONGO_URI=mongodb+srv://shopee-sentiment:MChau2506@cluster0.qlbix.mongodb.net/anonshare-db
-      - JWT_SECRET=3c4574188390eaea0f7d11fad6da00542ef9cc662f7cccd768fa162b26ce9bd1e72fdcbd911c78d86e7355a00dbfdfeb09dfd60395270ef487222debfea51c8f
-      - JWT_EXPIRES=90d
-      - AI_SERVICE_URL=https://anon-share-ai-service-latest.onrender.com
-      - AI_SERVICE_TIMEOUT=10000
+    env_file:
+      - .env
 
-    depends_on:
-      - mongo
-
-  mongo:
-    image: mongo:8
-    container_name: anon-share-mongo
     restart: unless-stopped
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongo_data:/data/db
-
-volumes:
-  mongo_data:
