@@ -8,12 +8,15 @@ import {
   Body,
   Query,
   UseGuards,
+  UseInterceptors,
   HttpCode,
   HttpStatus,
   Patch,
 } from '@nestjs/common';
 import { AnonKeyGuard } from '../auth/guards/anon-key.guard';
 import { AnonId } from '../auth/decorators/anon-id.decorator';
+import { AdminGuard } from '../admin/guards/admin.guard';
+import { AdminAuditInterceptor } from '../admin/interceptors/admin-audit.interceptor';
 import { PostService } from './post.service';
 import {
   CreatePostDto,
@@ -51,10 +54,16 @@ export class PostController {
   async getPosts(
     @Query('page') page: number = 1,
     @Query('limit') limit: number = 10,
+    @Query('contentStatus') contentStatus?: string | string[],
     @Query('status') status?: string | string[],
     @Query('visibility') visibility?: string | string[],
   ): Promise<PaginatedPostsDto> {
-    return this.postService.getPosts(+page, +limit, status, visibility);
+    return this.postService.getPosts(
+      +page,
+      +limit,
+      contentStatus ?? status,
+      visibility,
+    );
   }
 
   /**
@@ -98,6 +107,8 @@ export class PostController {
   }
 
   @Patch(':id/status')
+  @UseGuards(AdminGuard)
+  @UseInterceptors(AdminAuditInterceptor)
   async updatePostStatus(
     @Param('id') id: string,
     @Body() dto: UpdatePostStatusDto,

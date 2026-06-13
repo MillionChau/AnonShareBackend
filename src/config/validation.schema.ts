@@ -21,4 +21,23 @@ export const validationSchema = Joi.object({
 
   AI_SERVICE_URL: Joi.string().uri().default('https://anon-share-ai-service-latest.onrender.com'),
   AI_SERVICE_TIMEOUT: Joi.number().default(30000),
-});
+
+  ADMIN_MASTER_KEY: Joi.string().min(32).required().messages({
+    'any.required': 'ADMIN_MASTER_KEY is required.',
+    'string.min': 'ADMIN_MASTER_KEY must be at least 32 characters.',
+  }),
+  ADMIN_SEED_USERNAME: Joi.string().optional(),
+  ADMIN_SEED_EMAIL: Joi.string().email().optional(),
+  ADMIN_SEED_PASSWORD: Joi.string().min(12).optional(),
+  ADMIN_SEED_TOTP_SECRET: Joi.string().optional(),
+  ADMIN_SEED_DISPLAY_NAME: Joi.string().optional(),
+
+  SMTP_HOST: Joi.string().hostname().optional(),
+  SMTP_PORT: Joi.number().port().default(587),
+  SMTP_SECURE: Joi.boolean().default(false),
+  SMTP_USER: Joi.string().optional(),
+  SMTP_PASS: Joi.string().optional(),
+  SMTP_FROM: Joi.string().email().optional(),
+})
+  .and('ADMIN_SEED_USERNAME', 'ADMIN_SEED_EMAIL', 'ADMIN_SEED_PASSWORD', 'ADMIN_SEED_TOTP_SECRET')
+  .and('SMTP_HOST', 'SMTP_USER', 'SMTP_PASS');

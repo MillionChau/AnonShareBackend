@@ -9,8 +9,14 @@ import {
   Query,
   HttpCode,
   HttpStatus,
+  UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
 import { ReportService } from './report.service';
+import { AdminGuard } from '../admin/guards/admin.guard';
+import { AdminAuditInterceptor } from '../admin/interceptors/admin-audit.interceptor';
+import { AdminUser } from '../admin/decorators/admin-user.decorator';
+import { AdminDocument } from '../admin/schemas/admin.schema';
 import {
   CreateReportDto,
   GetReportsQueryDto,
@@ -67,6 +73,8 @@ export class ReportController {
    * Query: status?, targetType?, page?, limit?
    */
   @Get('admin/all')
+  @UseGuards(AdminGuard)
+  @UseInterceptors(AdminAuditInterceptor)
   async getAllReports(
     @Query() query: GetReportsQueryDto,
   ): Promise<ReportListDto> {
@@ -78,6 +86,8 @@ export class ReportController {
    * Lấy chi tiết một báo cáo.
    */
   @Get('admin/:reportId')
+  @UseGuards(AdminGuard)
+  @UseInterceptors(AdminAuditInterceptor)
   async getReportById(
     @Param('reportId') reportId: string,
   ): Promise<ReportDto> {
@@ -89,12 +99,14 @@ export class ReportController {
    * Đánh dấu báo cáo đang được xem xét (pending → reviewed).
    */
   @Patch('admin/:adminDisplayId/review/:reportId')
+  @UseGuards(AdminGuard)
+  @UseInterceptors(AdminAuditInterceptor)
   @HttpCode(HttpStatus.OK)
   async markAsReviewed(
-    @Param('adminDisplayId') adminDisplayId: string,
+    @AdminUser() admin: AdminDocument,
     @Param('reportId') reportId: string,
   ): Promise<ReportDto> {
-    return this.reportService.markAsReviewed(reportId, adminDisplayId);
+    return this.reportService.markAsReviewed(reportId, admin.username);
   }
 
   /**
@@ -104,12 +116,14 @@ export class ReportController {
    * Body: { reportId, action: 'resolved' | 'dismissed', adminNote? }
    */
   @Patch('admin/:adminDisplayId/resolve')
+  @UseGuards(AdminGuard)
+  @UseInterceptors(AdminAuditInterceptor)
   @HttpCode(HttpStatus.OK)
   async resolveReport(
-    @Param('adminDisplayId') adminDisplayId: string,
+    @AdminUser() admin: AdminDocument,
     @Body() resolveReportDto: ResolveReportDto,
   ): Promise<ReportDto> {
-    return this.reportService.resolveReport(adminDisplayId, resolveReportDto);
+    return this.reportService.resolveReport(admin.username, resolveReportDto);
   }
 
   /**
@@ -117,6 +131,8 @@ export class ReportController {
    * Xóa vĩnh viễn một báo cáo.
    */
   @Delete('admin/:reportId')
+  @UseGuards(AdminGuard)
+  @UseInterceptors(AdminAuditInterceptor)
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteReport(
     @Param('reportId') reportId: string,

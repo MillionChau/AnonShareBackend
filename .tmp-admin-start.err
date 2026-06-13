@@ -1,0 +1,6 @@
+(node:11360) [MONGOOSE] Warning: Duplicate schema index on {"displayId":1} found. This is often due to declaring an index using both "index: true" and "schema.index()". Please remove the duplicate index definition.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:11360) [MONGOOSE] Warning: Duplicate schema index on {"anonymousIdHash":1} found. This is often due to declaring an index using both "index: true" and "schema.index()". Please remove the duplicate index definition.
+(node:11360) [MONGOOSE] Warning: Duplicate schema index on {"deviceFingerprint":1} found. This is often due to declaring an index using both "index: true" and "schema.index()". Please remove the duplicate index definition.
+(node:11360) [MONGOOSE] Warning: Duplicate schema index on {"username":1} found. This is often due to declaring an index using both "index: true" and "schema.index()". Please remove the duplicate index definition.
+(node:11360) [MONGOOSE] Warning: Duplicate schema index on {"keyId":1} found. This is often due to declaring an index using both "index: true" and "schema.index()". Please remove the duplicate index definition.

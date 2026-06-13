@@ -8,9 +8,20 @@
 > - `TOKEN` — JWT token sau khi đăng nhập (tự động set qua test script)
 > - `ANON_ID` — displayId của user (tự động set)
 > - `POST_ID` — ID bài viết (tự động set)
+> - `ANOTHER_POST_ID` — ID bài viết khác dùng cho test report throttling
 > - `COMMENT_ID` — ID bình luận (tự động set)
 > - `REPORT_ID` — ID báo cáo (tự động set)
 > - `NOTIF_ID` — ID thông báo (tự động set)
+> - `ADMIN_MASTER_KEY` — giá trị `ADMIN_MASTER_KEY` trong `.env`
+> - `ADMIN_USERNAME` — username admin đã seed/tạo trong database
+> - `ADMIN_PASSWORD` — mật khẩu admin đã seed/tạo trong database
+> - `ADMIN_TOTP_CODE` — mã 2FA 6 số hiện tại từ Authenticator app
+> - `ADMIN_LOGIN_TOKEN` — token tạm sau bước admin login
+> - `ADMIN_TOKEN` — JWT admin sau khi xác thực 2FA
+
+> Header bắt buộc cho mọi Admin API sau khi xác thực:
+> - `Authorization: Bearer {{ADMIN_TOKEN}}`
+> - `x-admin-master-key: {{ADMIN_MASTER_KEY}}`
 
 ---
 
@@ -117,6 +128,92 @@ pm.test("Status 401", () => pm.response.to.have.status(401));
 
 ---
 
+## MODULE 1B — ADMIN AUTH / 2FA
+
+> Admin không có route đăng ký. Trước khi test, tạo admin bằng seed/database:
+> - `ADMIN_SEED_USERNAME`
+> - `ADMIN_SEED_PASSWORD`
+> - `ADMIN_SEED_TOTP_SECRET`
+>
+> Sau đó khai báo trong Postman: `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `ADMIN_MASTER_KEY`, `ADMIN_TOTP_CODE`.
+
+### TC-ADMIN-001 · Admin login bằng username/password (yêu cầu Master Key)
+| Trường | Giá trị |
+|--------|---------|
+| **Method** | `POST` |
+| **URL** | `{{BASE_URL}}/admin/login` |
+| **Headers** | `Content-Type: application/json`, `x-admin-master-key: {{ADMIN_MASTER_KEY}}` |
+| **Body** | `{ "username": "{{ADMIN_USERNAME}}", "password": "{{ADMIN_PASSWORD}}" }` |
+| **Kỳ vọng** | Status `200 OK` |
+
+**Test Script:**
+```javascript
+pm.test("Status 200", () => pm.response.to.have.status(200));
+pm.test("Yêu cầu 2FA và lưu ADMIN_LOGIN_TOKEN", () => {
+    const json = pm.response.json();
+    pm.expect(json.requires2FA).to.equal(true);
+    pm.expect(json.loginToken).to.be.a("string").and.not.empty;
+    pm.environment.set("ADMIN_LOGIN_TOKEN", json.loginToken);
+});
+```
+
+---
+
+### TC-ADMIN-002 · Admin xác thực TOTP 2FA
+| Trường | Giá trị |
+|--------|---------|
+| **Method** | `POST` |
+| **URL** | `{{BASE_URL}}/admin/verify-2fa` |
+| **Headers** | `Content-Type: application/json`, `x-admin-master-key: {{ADMIN_MASTER_KEY}}` |
+| **Body** | `{ "loginToken": "{{ADMIN_LOGIN_TOKEN}}", "totpCode": "{{ADMIN_TOTP_CODE}}" }` |
+| **Kỳ vọng** | Status `200 OK` |
+
+**Test Script:**
+```javascript
+pm.test("Status 200", () => pm.response.to.have.status(200));
+pm.test("Lưu ADMIN_TOKEN", () => {
+    const json = pm.response.json();
+    pm.expect(json.token).to.be.a("string").and.not.empty;
+    pm.expect(json.admin.username).to.equal(pm.environment.get("ADMIN_USERNAME").toLowerCase());
+    pm.environment.set("ADMIN_TOKEN", json.token);
+});
+```
+
+---
+
+### TC-ADMIN-003 · Lấy thông tin admin hiện tại
+| Trường | Giá trị |
+|--------|---------|
+| **Method** | `GET` |
+| **URL** | `{{BASE_URL}}/admin/me` |
+| **Headers** | `Authorization: Bearer {{ADMIN_TOKEN}}`, `x-admin-master-key: {{ADMIN_MASTER_KEY}}` |
+| **Kỳ vọng** | Status `200 OK` |
+
+**Test Script:**
+```javascript
+pm.test("Status 200", () => pm.response.to.have.status(200));
+pm.test("Admin username khớp", () => {
+    pm.expect(pm.response.json().username).to.equal(pm.environment.get("ADMIN_USERNAME").toLowerCase());
+});
+```
+
+---
+
+### TC-ADMIN-004 · Admin API thiếu Master Key (thất bại)
+| Trường | Giá trị |
+|--------|---------|
+| **Method** | `GET` |
+| **URL** | `{{BASE_URL}}/admin/me` |
+| **Headers** | `Authorization: Bearer {{ADMIN_TOKEN}}` |
+| **Kỳ vọng** | Status `403 Forbidden` |
+
+**Test Script:**
+```javascript
+pm.test("Status 403", () => pm.response.to.have.status(403));
+```
+
+---
+
 ## MODULE 2 — POSTS (Bài viết)
 
 > ⚠️ Các request cần xác thực phải thêm header:  
@@ -169,6 +266,27 @@ pm.test("Content khớp", () => {
 
 ---
 
+### TC-POST-002B · Tạo bài viết vượt giới hạn fingerprint (thất bại)
+| Trường | Giá trị |
+|--------|---------|
+| **Method** | `POST` |
+| **URL** | `{{BASE_URL}}/posts` |
+| **Headers** | `Authorization: Bearer {{TOKEN}}` |
+| **Body** | `{ "content": "Bài viết thứ hai trong vòng 15 phút", "visibility": "public" }` |
+| **Kỳ vọng** | Status `429 Too Many Requests` |
+
+> Chạy ngay sau `TC-POST-001` nếu muốn test throttle. Giới hạn hiện tại: cùng fingerprint chỉ được tạo `1` post mỗi `15 phút`.
+
+**Test Script:**
+```javascript
+pm.test("Status 429", () => pm.response.to.have.status(429));
+pm.test("Có Retry-After cho postCreate", () => {
+    pm.expect(pm.response.headers.get("Retry-After-postCreate")).to.exist;
+});
+```
+
+---
+
 ### TC-POST-003 · Lấy danh sách bài viết (phân trang)
 | Trường | Giá trị |
 |--------|---------|
@@ -182,6 +300,26 @@ pm.test("Status 200", () => pm.response.to.have.status(200));
 pm.test("Trả về mảng bài viết", () => {
     const json = pm.response.json();
     pm.expect(json.posts || json.data || json).to.be.an("array").or.to.be.an("object");
+});
+```
+
+---
+
+### TC-POST-003B · Lọc danh sách bài viết theo contentStatus
+| Trường | Giá trị |
+|--------|---------|
+| **Method** | `GET` |
+| **URL** | `{{BASE_URL}}/posts?page=1&limit=10&contentStatus=approved` |
+| **Kỳ vọng** | Status `200 OK` |
+
+**Test Script:**
+```javascript
+pm.test("Status 200", () => pm.response.to.have.status(200));
+pm.test("Tất cả bài viết đều approved", () => {
+    const json = pm.response.json();
+    (json.data || []).forEach(post => {
+        pm.expect(post.contentStatus).to.equal("approved");
+    });
 });
 ```
 
@@ -242,13 +380,23 @@ pm.test("Content đã thay đổi", () => {
 
 ---
 
-### TC-POST-008 · Cập nhật trạng thái bài viết
+### TC-POST-008 · Admin cập nhật trạng thái bài viết
 | Trường | Giá trị |
 |--------|---------|
 | **Method** | `PATCH` |
 | **URL** | `{{BASE_URL}}/posts/{{POST_ID}}/status` |
-| **Body** | `{ "status": "hidden" }` |
+| **Headers** | `Authorization: Bearer {{ADMIN_TOKEN}}`, `x-admin-master-key: {{ADMIN_MASTER_KEY}}` |
+| **Body** | `{ "status": "approved" }` |
 | **Kỳ vọng** | Status `200 OK` |
+
+**Test Script:**
+```javascript
+pm.test("Status 200", () => pm.response.to.have.status(200));
+pm.test("Post status đã được cập nhật", () => {
+    const json = pm.response.json();
+    pm.expect(json.post.contentStatus).to.equal("approved");
+});
+```
 
 ---
 
@@ -292,8 +440,8 @@ pm.test("Có message xác nhận", () => {
 
 ## MODULE 3 — COMMENTS (Bình luận)
 
-> ⚠️ Toàn bộ module Comment yêu cầu `Authorization: Bearer {{TOKEN}}`  
-> (Controller áp dụng `AnonKeyGuard` ở cấp class)
+> ⚠️ Các route người dùng trong module Comment yêu cầu `Authorization: Bearer {{TOKEN}}`.
+> Route cập nhật trạng thái bình luận là Admin API, yêu cầu `Authorization: Bearer {{ADMIN_TOKEN}}` và `x-admin-master-key: {{ADMIN_MASTER_KEY}}`.
 
 ---
 
@@ -341,6 +489,27 @@ pm.test("Content khớp", () => {
 | **Headers** | `Authorization: Bearer {{TOKEN}}` |
 | **Body** | `{ "postId": "{{POST_ID}}", "content": "" }` |
 | **Kỳ vọng** | Status `400 Bad Request` |
+
+---
+
+### TC-CMT-002B · Tạo bình luận vượt giới hạn fingerprint (thất bại)
+| Trường | Giá trị |
+|--------|---------|
+| **Method** | `POST` |
+| **URL** | `{{BASE_URL}}/comments` |
+| **Headers** | `Authorization: Bearer {{TOKEN}}` |
+| **Body** | `{ "postId": "{{POST_ID}}", "content": "Bình luận vượt giới hạn trong 1 phút" }` |
+| **Kỳ vọng** | Status `429 Too Many Requests` |
+
+> Chạy sau khi gửi đủ `8` request `POST /comments` trong vòng `1 phút` trên cùng fingerprint.
+
+**Test Script:**
+```javascript
+pm.test("Status 429", () => pm.response.to.have.status(429));
+pm.test("Có Retry-After cho commentCreate", () => {
+    pm.expect(pm.response.headers.get("Retry-After-commentCreate")).to.exist;
+});
+```
 
 ---
 
@@ -471,6 +640,26 @@ pm.test("Có message xác nhận", () => {
 
 ---
 
+### TC-CMT-011 · Admin cập nhật trạng thái bình luận
+| Trường | Giá trị |
+|--------|---------|
+| **Method** | `PATCH` |
+| **URL** | `{{BASE_URL}}/comments/{{COMMENT_ID}}/status` |
+| **Headers** | `Authorization: Bearer {{ADMIN_TOKEN}}`, `x-admin-master-key: {{ADMIN_MASTER_KEY}}` |
+| **Body** | `{ "status": "approved" }` |
+| **Kỳ vọng** | Status `200 OK` |
+
+**Test Script:**
+```javascript
+pm.test("Status 200", () => pm.response.to.have.status(200));
+pm.test("Comment status đã được cập nhật", () => {
+    const json = pm.response.json();
+    pm.expect(json.comment.contentStatus).to.equal("approved");
+});
+```
+
+---
+
 ## MODULE 4 — REPORTS (Báo cáo)
 
 ---
@@ -485,7 +674,7 @@ pm.test("Có message xác nhận", () => {
 **Body (raw JSON):**
 ```json
 {
-  "targetType": "POST",
+  "targetType": "post",
   "targetId": "{{POST_ID}}",
   "reason": "spam",
   "description": "Bài viết này có nội dung quảng cáo không phù hợp với cộng đồng."
@@ -520,7 +709,7 @@ pm.test("Có message xác nhận", () => {
 **Body (raw JSON):**
 ```json
 {
-  "targetType": "COMMENT",
+  "targetType": "comment",
   "targetId": "{{COMMENT_ID}}",
   "reason": "harassment",
   "description": "Bình luận này có lời lẽ xúc phạm và nhắm vào cá nhân một người dùng khác."
@@ -549,12 +738,32 @@ pm.test("Thông báo đã báo cáo rồi", () => {
 
 ---
 
+### TC-RPT-003B · Tạo báo cáo vượt giới hạn fingerprint (thất bại)
+| Trường | Giá trị |
+|--------|---------|
+| **Method** | `POST` |
+| **URL** | `{{BASE_URL}}/reports/{{ANON_ID}}` |
+| **Body** | `{ "targetType": "post", "targetId": "{{ANOTHER_POST_ID}}", "reason": "spam", "description": "Báo cáo thứ hai trong vòng 1 giờ." }` |
+| **Kỳ vọng** | Status `429 Too Many Requests` |
+
+> Chạy sau khi đã tạo một report thành công trong vòng `1 giờ` trên cùng fingerprint. Dùng `ANOTHER_POST_ID` để tránh nhầm với lỗi `409 Conflict` do báo cáo trùng target.
+
+**Test Script:**
+```javascript
+pm.test("Status 429", () => pm.response.to.have.status(429));
+pm.test("Có Retry-After cho reportCreate", () => {
+    pm.expect(pm.response.headers.get("Retry-After-reportCreate")).to.exist;
+});
+```
+
+---
+
 ### TC-RPT-004 · Tự báo cáo bài viết của mình (thất bại)
 | Trường | Giá trị |
 |--------|---------|
 | **Method** | `POST` |
 | **URL** | `{{BASE_URL}}/reports/{{ANON_ID}}` |
-| **Body** | `{ "targetType": "POST", "targetId": "{{MY_OWN_POST_ID}}", "reason": "spam" }` |
+| **Body** | `{ "targetType": "post", "targetId": "{{MY_OWN_POST_ID}}", "reason": "spam" }` |
 | **Kỳ vọng** | Status `400 Bad Request` |
 
 **Test Script:**
@@ -591,7 +800,7 @@ pm.test("Trả về danh sách và phân trang", () => {
 | Trường | Giá trị |
 |--------|---------|
 | **Method** | `GET` |
-| **URL** | `{{BASE_URL}}/reports/{{ANON_ID}}/my?status=pending&targetType=POST` |
+| **URL** | `{{BASE_URL}}/reports/{{ANON_ID}}/my?status=pending&targetType=post` |
 | **Kỳ vọng** | Status `200 OK` |
 
 ---
@@ -601,6 +810,7 @@ pm.test("Trả về danh sách và phân trang", () => {
 |--------|---------|
 | **Method** | `GET` |
 | **URL** | `{{BASE_URL}}/reports/admin/all?page=1&limit=20` |
+| **Headers** | `Authorization: Bearer {{ADMIN_TOKEN}}`, `x-admin-master-key: {{ADMIN_MASTER_KEY}}` |
 | **Kỳ vọng** | Status `200 OK` |
 
 **Test Script:**
@@ -620,6 +830,7 @@ pm.test("Cấu trúc phân trang đúng", () => {
 |--------|---------|
 | **Method** | `GET` |
 | **URL** | `{{BASE_URL}}/reports/admin/{{REPORT_ID}}` |
+| **Headers** | `Authorization: Bearer {{ADMIN_TOKEN}}`, `x-admin-master-key: {{ADMIN_MASTER_KEY}}` |
 | **Kỳ vọng** | Status `200 OK` |
 
 ---
@@ -628,7 +839,8 @@ pm.test("Cấu trúc phân trang đúng", () => {
 | Trường | Giá trị |
 |--------|---------|
 | **Method** | `PATCH` |
-| **URL** | `{{BASE_URL}}/reports/admin/{{ANON_ID}}/review/{{REPORT_ID}}` |
+| **URL** | `{{BASE_URL}}/reports/admin/{{ADMIN_USERNAME}}/review/{{REPORT_ID}}` |
+| **Headers** | `Authorization: Bearer {{ADMIN_TOKEN}}`, `x-admin-master-key: {{ADMIN_MASTER_KEY}}` |
 | **Kỳ vọng** | Status `200 OK` |
 
 **Test Script:**
@@ -645,7 +857,8 @@ pm.test("Status chuyển sang reviewed", () => {
 | Trường | Giá trị |
 |--------|---------|
 | **Method** | `PATCH` |
-| **URL** | `{{BASE_URL}}/reports/admin/{{ANON_ID}}/resolve` |
+| **URL** | `{{BASE_URL}}/reports/admin/{{ADMIN_USERNAME}}/resolve` |
+| **Headers** | `Authorization: Bearer {{ADMIN_TOKEN}}`, `x-admin-master-key: {{ADMIN_MASTER_KEY}}` |
 | **Body** | Xem bên dưới |
 
 **Body (raw JSON):**
@@ -676,7 +889,8 @@ pm.test("resolvedAt có giá trị", () => {
 | Trường | Giá trị |
 |--------|---------|
 | **Method** | `PATCH` |
-| **URL** | `{{BASE_URL}}/reports/admin/{{ANON_ID}}/resolve` |
+| **URL** | `{{BASE_URL}}/reports/admin/{{ADMIN_USERNAME}}/resolve` |
+| **Headers** | `Authorization: Bearer {{ADMIN_TOKEN}}`, `x-admin-master-key: {{ADMIN_MASTER_KEY}}` |
 | **Body** | `{ "reportId": "{{REPORT_ID}}", "action": "dismissed", "adminNote": "Báo cáo không có cơ sở, không tìm thấy vi phạm." }` |
 | **Kỳ vọng** | Status `200 OK` |
 
@@ -686,7 +900,8 @@ pm.test("resolvedAt có giá trị", () => {
 | Trường | Giá trị |
 |--------|---------|
 | **Method** | `PATCH` |
-| **URL** | `{{BASE_URL}}/reports/admin/{{ANON_ID}}/resolve` |
+| **URL** | `{{BASE_URL}}/reports/admin/{{ADMIN_USERNAME}}/resolve` |
+| **Headers** | `Authorization: Bearer {{ADMIN_TOKEN}}`, `x-admin-master-key: {{ADMIN_MASTER_KEY}}` |
 | **Body** | *(Cùng reportId đã resolved)* |
 | **Kỳ vọng** | Status `400 Bad Request` |
 
@@ -705,6 +920,7 @@ pm.test("Thông báo đã xử lý", () => {
 |--------|---------|
 | **Method** | `DELETE` |
 | **URL** | `{{BASE_URL}}/reports/admin/{{REPORT_ID}}` |
+| **Headers** | `Authorization: Bearer {{ADMIN_TOKEN}}`, `x-admin-master-key: {{ADMIN_MASTER_KEY}}` |
 | **Kỳ vọng** | Status `204 No Content` |
 
 **Test Script:**
@@ -881,29 +1097,38 @@ pm.test("deletedCount >= 0", () => {
 ```
 1. TC-AUTH-001  → Tạo tài khoản + lấy TOKEN, ANON_ID
 2. TC-AUTH-003  → Đăng nhập lại, xác nhận TOKEN
-3. TC-POST-001  → Tạo bài viết, lấy POST_ID
-4. TC-POST-003  → Lấy danh sách bài viết
-5. TC-POST-004  → Lấy chi tiết bài viết
-6. TC-CMT-001   → Tạo bình luận, lấy COMMENT_ID
-7. TC-CMT-003   → Tạo reply
-8. TC-CMT-004   → Lấy danh sách bình luận
-9. TC-POST-009  → Like bài viết
-10. TC-CMT-008  → Like bình luận
-11. TC-RPT-001  → Báo cáo (dùng tài khoản khác báo cáo)
-12. TC-RPT-005  → Xem báo cáo của mình
-13. TC-RPT-007  → Admin xem toàn bộ báo cáo
-14. TC-RPT-009  → Admin đánh dấu reviewed
-15. TC-RPT-010  → Admin resolve báo cáo
-16. TC-NOTIF-001 → Xem thông báo (sau khi bị báo cáo)
-17. TC-NOTIF-003 → Xem badge
-18. TC-NOTIF-005 → Đánh dấu đã đọc
-19. TC-NOTIF-006 → Đánh dấu tất cả đã đọc
-20. TC-CMT-009  → Xóa bình luận
-21. TC-POST-010 → Xóa bài viết
-22. TC-AUTH-002 → Test case lỗi: thiếu password
-23. TC-AUTH-004 → Test case lỗi: sai mật khẩu
-24. TC-RPT-012  → Test case lỗi: xử lý báo cáo đã xử lý
+3. TC-ADMIN-001 → Admin login, lấy ADMIN_LOGIN_TOKEN
+4. TC-ADMIN-002 → Admin verify 2FA, lấy ADMIN_TOKEN
+5. TC-ADMIN-003 → Kiểm tra admin session
+6. TC-POST-001  → Tạo bài viết, lấy POST_ID
+7. TC-POST-008  → Admin approve/reject bài viết
+8. TC-POST-003  → Lấy danh sách bài viết
+9. TC-POST-003B → Lọc bài viết theo contentStatus
+10. TC-POST-004 → Lấy chi tiết bài viết
+11. TC-CMT-001 → Tạo bình luận, lấy COMMENT_ID
+12. TC-CMT-011 → Admin approve/reject bình luận
+13. TC-CMT-003 → Tạo reply
+14. TC-CMT-004 → Lấy danh sách bình luận
+15. TC-POST-009 → Like bài viết
+16. TC-CMT-008 → Like bình luận
+17. TC-RPT-001 → Báo cáo (dùng tài khoản khác báo cáo)
+18. TC-RPT-005 → Xem báo cáo của mình
+19. TC-RPT-007 → Admin xem toàn bộ báo cáo
+20. TC-RPT-009 → Admin đánh dấu reviewed
+21. TC-RPT-010 → Admin resolve báo cáo
+22. TC-NOTIF-001 → Xem thông báo (sau khi bị báo cáo)
+23. TC-NOTIF-003 → Xem badge
+24. TC-NOTIF-005 → Đánh dấu đã đọc
+25. TC-NOTIF-006 → Đánh dấu tất cả đã đọc
+26. TC-CMT-009 → Xóa bình luận
+27. TC-POST-010 → Xóa bài viết
+28. TC-AUTH-002 → Test case lỗi: thiếu password
+29. TC-AUTH-004 → Test case lỗi: sai mật khẩu
+30. TC-ADMIN-004 → Test case lỗi: thiếu Admin Master Key
+31. TC-RPT-012 → Test case lỗi: xử lý báo cáo đã xử lý
 ```
+
+> Các case throttling `TC-POST-002B`, `TC-CMT-002B`, `TC-RPT-003B` nên chạy riêng khi cần kiểm tra rate limit, vì cooldown lần lượt là `15 phút`, `1 phút`, `1 giờ`.
 
 ---
 
@@ -912,10 +1137,11 @@ pm.test("deletedCount >= 0", () => {
 | Module | Tổng TC | Happy Path | Error Case |
 |--------|---------|-----------|------------|
 | Auth | 5 | 3 | 2 |
-| Posts | 10 | 7 | 3 |
-| Comments | 10 | 8 | 2 |
-| Reports | 13 | 9 | 4 |
+| Admin Auth | 4 | 3 | 1 |
+| Posts | 12 | 8 | 4 |
+| Comments | 12 | 9 | 3 |
+| Reports | 14 | 9 | 5 |
 | Notifications | 9 | 7 | 2 |
-| **Tổng** | **47** | **34** | **13** |
+| **Tổng** | **56** | **39** | **17** |
 
 ---

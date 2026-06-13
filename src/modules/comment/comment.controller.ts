@@ -10,12 +10,11 @@ import {
   Body,
   Param,
   Query,
-  Req,
   HttpCode,
   HttpStatus,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
-import { Request } from 'express';
 
 import { CommentService } from './comment.service';
 import {
@@ -26,20 +25,20 @@ import {
   CreateCommentResponseDto,
   PaginatedCommentsDto,
   ToggleLikeCommentDto,
+  UpdateCommentStatusDto,
+  UpdateCommentStatusResponseDto,
 } from './dto/comment.dto';
 import { AnonKeyGuard } from '../auth/guards/anon-key.guard';
 import { AnonId } from '../auth/decorators/anon-id.decorator';
-
-interface AuthRequest extends Request {
-  user: { displayId: string };
-}
+import { AdminGuard } from '../admin/guards/admin.guard';
+import { AdminAuditInterceptor } from '../admin/interceptors/admin-audit.interceptor';
 
 @Controller('comments')
-@UseGuards(AnonKeyGuard)
 export class CommentController {
   constructor(private readonly commentService: CommentService) {}
 
   @Post()
+  @UseGuards(AnonKeyGuard)
   @HttpCode(HttpStatus.CREATED)
   async createComment(
     @AnonId() authorDisplayId: string,
@@ -49,6 +48,7 @@ export class CommentController {
   }
 
   @Get('post/:postId')
+  @UseGuards(AnonKeyGuard)
   @HttpCode(HttpStatus.OK)
   async getCommentsByPost(
     @Param('postId') postId: string,
@@ -59,6 +59,7 @@ export class CommentController {
   }
 
   @Get(':commentId/replies')
+  @UseGuards(AnonKeyGuard)
   @HttpCode(HttpStatus.OK)
   async getReplies(
     @Param('commentId') commentId: string,
@@ -69,6 +70,7 @@ export class CommentController {
   }
 
   @Get(':commentId')
+  @UseGuards(AnonKeyGuard)
   @HttpCode(HttpStatus.OK)
   async getCommentById(
     @Param('commentId') commentId: string,
@@ -78,6 +80,7 @@ export class CommentController {
   }
 
   @Put(':commentId')
+  @UseGuards(AnonKeyGuard)
   @HttpCode(HttpStatus.OK)
   async updateComment(
     @Param('commentId') commentId: string,
@@ -88,6 +91,7 @@ export class CommentController {
   }
 
   @Delete(':commentId')
+  @UseGuards(AnonKeyGuard)
   @HttpCode(HttpStatus.OK)
   async deleteComment(
     @Param('commentId') commentId: string,
@@ -97,11 +101,23 @@ export class CommentController {
   }
 
   @Patch(':commentId/like')
+  @UseGuards(AnonKeyGuard)
   @HttpCode(HttpStatus.OK)
   async toggleLike(
     @Param('commentId') commentId: string,
     @AnonId() authorDisplayId: string,
   ): Promise<ToggleLikeCommentDto> {
     return this.commentService.toggleLike(commentId, authorDisplayId);
+  }
+
+  @Patch(':commentId/status')
+  @UseGuards(AdminGuard)
+  @UseInterceptors(AdminAuditInterceptor)
+  @HttpCode(HttpStatus.OK)
+  async updateCommentStatus(
+    @Param('commentId') commentId: string,
+    @Body() dto: UpdateCommentStatusDto,
+  ): Promise<UpdateCommentStatusResponseDto> {
+    return this.commentService.updateCommentStatus(commentId, dto);
   }
 }

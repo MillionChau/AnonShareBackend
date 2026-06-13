@@ -8,6 +8,7 @@ import { PostService } from './post.service';
 import { Post, PostSchema } from './schemas/post.schema';
 import { NotificationModule } from '../notification/notification.module';
 import { CommentModule } from '../comment/comment.module';
+import { AdminModule } from '../admin/admin.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { CommentModule } from '../comment/comment.module';
     AuthModule,
     NotificationModule,
     CommentModule,
+    AdminModule,
   ],
   controllers: [PostController],
   providers: [PostService],

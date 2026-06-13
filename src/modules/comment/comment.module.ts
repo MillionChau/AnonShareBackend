@@ -9,6 +9,7 @@ import { Comment, CommentSchema } from './schemas/comment.schema';
 
 import { Post, PostSchema } from '../post/schemas/post.schema';
 import { NotificationModule } from '../notification/notification.module';
+import { AdminModule } from '../admin/admin.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { NotificationModule } from '../notification/notification.module';
     ConfigModule,
     AuthModule,
     NotificationModule,
+    AdminModule,
   ],
   controllers: [CommentController],
   providers: [CommentService],

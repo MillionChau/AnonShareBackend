@@ -7,13 +7,15 @@ import { ReportController } from './report.controller';
 import { NotificationModule } from '../notification/notification.module';
 import { PostModule } from '../post/post.module';
 import { CommentModule } from '../comment/comment.module';
+import { AdminModule } from '../admin/admin.module';
 
 @Module({
   imports: [
     MongooseModule.forFeature([{ name: Report.name, schema: ReportSchema }]),
-    NotificationModule, 
-    PostModule,         
-    CommentModule,     
+    NotificationModule,
+    PostModule,
+    CommentModule,
+    AdminModule,
   ],
   controllers: [ReportController],
   providers: [ReportService],

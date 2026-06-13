@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 
 import { validationSchema } from './config/validation.schema';
-import { appConfig, mongoConfig, jwtConfig, aiConfig } from './config/configuration';
+import { appConfig, mongoConfig, jwtConfig, aiConfig, adminConfig } from './config/configuration';
 import { DatabaseModule } from './database/database.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { PostModule } from './modules/post/post.module';
@@ -12,6 +12,7 @@ import { DeviceThrottlerGuard } from './modules/auth/guards/device-throttler.gua
 import { CommentModule } from './modules/comment/comment.module';
 import { NotificationModule } from './modules/notification/notification.module';
 import { ReportModule } from './modules/report/report.module';
+import { AdminModule } from './modules/admin/admin.module';
 
 @Module({
   imports: [
@@ -19,7 +20,7 @@ import { ReportModule } from './modules/report/report.module';
     ConfigModule.forRoot({
       isGlobal: true,           
       envFilePath: '.env',
-      load: [appConfig, mongoConfig, jwtConfig, aiConfig],
+      load: [appConfig, mongoConfig, jwtConfig, aiConfig, adminConfig],
       validationSchema,      
       validationOptions: {
         abortEarly: true,  
@@ -28,8 +29,23 @@ import { ReportModule } from './modules/report/report.module';
     ThrottlerModule.forRoot([
       {
         name: 'auth',
-        ttl: 60_000,  
-        limit: 5,     
+        ttl: 60_000,
+        limit: 5,
+      },
+      {
+        name: 'postCreate',
+        ttl: 15 * 60_000,
+        limit: 1,
+      },
+      {
+        name: 'commentCreate',
+        ttl: 60_000,
+        limit: 8,
+      },
+      {
+        name: 'reportCreate',
+        ttl: 60 * 60_000,
+        limit: 1,
       },
     ]),
 
@@ -39,6 +55,7 @@ import { ReportModule } from './modules/report/report.module';
     CommentModule,
     NotificationModule,
     ReportModule,
+    AdminModule,
   ],
   providers: [
     {

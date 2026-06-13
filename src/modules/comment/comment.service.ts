@@ -191,13 +191,32 @@ export class CommentService {
           $inc: { replyCount: 1 },
         });
       }
+      if (contentStatus === 'approved') {
+        await this.postModel.findByIdAndUpdate(createCommentDto.postId, {
+          $inc: { commentCount: 1 },
+        });
+      }
 
       this.logger.log(
         `Comment created: ${comment._id} by ${authorDisplayId} | depth=${depth} | status=${contentStatus}`,
       );
 
+      const commentResponse = this.formatCommentResponse(comment, authorDisplayId);
+      this.notificationService.emitAdminEvent('comment:created', commentResponse);
+      if (contentStatus === 'approved') {
+        this.notificationService.emitPostEvent(
+          createCommentDto.postId,
+          'comment:created',
+          commentResponse,
+        );
+        this.notificationService.emitFeedEvent('comment:created', {
+          postId: createCommentDto.postId,
+          comment: commentResponse,
+        });
+      }
+
       return {
-        comment: this.formatCommentResponse(comment, authorDisplayId),
+        comment: commentResponse,
         message:
           contentStatus === 'approved'
             ? 'Bình luận đã được đăng thành công'
@@ -428,7 +447,15 @@ export class CommentService {
 
       this.logger.log(`Comment ${commentId} updated by ${authorDisplayId}`);
 
-      return this.formatCommentResponse(comment, authorDisplayId);
+      const commentResponse = this.formatCommentResponse(comment, authorDisplayId);
+      this.notificationService.emitAdminEvent('comment:updated', commentResponse);
+      this.notificationService.emitPostEvent(
+        comment.postId.toString(),
+        'comment:updated',
+        commentResponse,
+      );
+
+      return commentResponse;
     } catch (error: any) {
       this.logger.error(
         `Failed to update comment ${commentId}: ${error?.message || String(error)}`,
@@ -441,7 +468,7 @@ export class CommentService {
     commentId: string,
     dto: UpdateCommentStatusDto
   ): Promise<UpdateCommentStatusResponseDto> {
-    if (Types.ObjectId.isValid(commentId)) {
+    if (!Types.ObjectId.isValid(commentId)) {
       throw new BadRequestException('Invalid comment Id format')
     }
 
@@ -451,8 +478,20 @@ export class CommentService {
       throw new NotFoundException('Không tìm thấy bình luận')
     }
 
+    const previousStatus = comment.contentStatus
     comment.contentStatus = dto.status
     await comment.save()
+
+    if (previousStatus !== 'approved' && dto.status === 'approved') {
+      await this.postModel.findByIdAndUpdate(comment.postId, {
+        $inc: { commentCount: 1 },
+      })
+    }
+    if (previousStatus === 'approved' && dto.status !== 'approved') {
+      await this.postModel.findByIdAndUpdate(comment.postId, {
+        $inc: { commentCount: -1 },
+      })
+    }
 
     this.logger.log(`Comment: ${commentId} status update to ${dto.status}`)
 
@@ -462,8 +501,20 @@ export class CommentService {
       dto.status,
     )
 
+    const commentResponse = this.formatCommentResponse(comment)
+    this.notificationService.emitAdminEvent('comment:status_updated', commentResponse)
+    this.notificationService.emitPostEvent(
+      comment.postId.toString(),
+      'comment:status_updated',
+      commentResponse,
+    )
+    this.notificationService.emitFeedEvent('comment:status_updated', {
+      postId: comment.postId.toString(),
+      comment: commentResponse,
+    })
+
     return {
-      comment: this.formatCommentResponse(comment),
+      comment: commentResponse,
       aiFeedback,
     }
   }
@@ -504,7 +555,21 @@ export class CommentService {
         });
       }
 
+      if (comment.contentStatus === 'approved') {
+        await this.postModel.findByIdAndUpdate(comment.postId, {
+          $inc: { commentCount: -1 },
+        });
+      }
+
       this.logger.log(`Comment ${commentId} deleted by ${authorDisplayId}`);
+      const payload = { commentId, postId: comment.postId.toString() };
+      this.notificationService.emitAdminEvent('comment:deleted', payload);
+      this.notificationService.emitPostEvent(
+        comment.postId.toString(),
+        'comment:deleted',
+        payload,
+      );
+      this.notificationService.emitFeedEvent('comment:deleted', payload);
 
       return { message: 'Bình luận đã được xóa' };
     } catch (error: any) {
@@ -547,6 +612,19 @@ export class CommentService {
 
       this.logger.log(
         `Comment ${commentId} ${isLiked ? 'unliked' : 'liked'} by ${userDisplayId}`,
+      );
+
+      const likePayload = {
+        commentId,
+        postId: comment.postId.toString(),
+        isLiked: !isLiked,
+        likeCount: comment.likeCount,
+        actorDisplayId: userDisplayId,
+      };
+      this.notificationService.emitPostEvent(
+        comment.postId.toString(),
+        'comment:liked',
+        likePayload,
       );
 
       return { isLiked: !isLiked, likeCount: comment.likeCount };

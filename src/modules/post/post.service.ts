@@ -30,6 +30,8 @@ export class PostService {
   private readonly logger = new Logger(PostService.name);
   private readonly aiServiceUrl: string;
   private readonly aiTimeout: number;
+  private readonly allowedContentStatuses = ['pending', 'approved', 'rejected'];
+  private readonly allowedVisibilities = ['public', 'private', 'hidden'];
 
   constructor(
     @InjectModel(Post.name)
@@ -113,7 +115,13 @@ export class PostService {
         `Post created: ${post._id} by ${authorDisplayId} with status ${contentStatus}`,
       );
 
-      return this.formatPostResponse(post);
+      const response = this.formatPostResponse(post);
+      this.notificationService.emitAdminEvent('post:created', response);
+      if (contentStatus === 'approved') {
+        this.notificationService.emitFeedEvent('post:created', response);
+      }
+
+      return response;
     } catch (error: any) {
       this.logger.error(`Failed to create post: ${error?.message || String(error)}`, error?.stack);
       throw error;
@@ -126,7 +134,7 @@ export class PostService {
   async getPosts(
     page: number = 1,
     limit: number = 10,
-    status?: string | string[],
+    contentStatus?: string | string[],
     visibility?: string | string[],
   ): Promise<PaginatedPostsDto> {
     try {
@@ -139,18 +147,18 @@ export class PostService {
       };
 
       // Nếu không truyền status thì mặc định lấy approved
-      if (status) {
-        query.contentStatus = Array.isArray(status)
-          ? { $in: status }
-          : status;
+      if (contentStatus !== undefined) {
+        const statuses = this.normalizeQueryValues(contentStatus);
+        this.validateQueryValues(statuses, this.allowedContentStatuses, 'contentStatus');
+        query.contentStatus = statuses.length > 1 ? { $in: statuses } : statuses[0];
       } else {
         query.contentStatus = 'approved';
       }
 
-      if (visibility) {
-        query.visibility = Array.isArray(visibility)
-          ? { $in: visibility }
-          : visibility;
+      if (visibility !== undefined) {
+        const visibilities = this.normalizeQueryValues(visibility);
+        this.validateQueryValues(visibilities, this.allowedVisibilities, 'visibility');
+        query.visibility = visibilities.length > 1 ? { $in: visibilities } : visibilities[0];
       } else {
         query.visibility = { $in: ['public', 'private'] };
       }
@@ -340,7 +348,12 @@ export class PostService {
 
       this.logger.log(`Post ${postId} updated by ${authorDisplayId}`);
 
-      return this.formatPostResponse(post);
+      const response = this.formatPostResponse(post);
+      this.notificationService.emitAdminEvent('post:updated', response);
+      this.notificationService.emitPostEvent(postId, 'post:updated', response);
+      this.notificationService.emitFeedEvent('post:updated', response);
+
+      return response;
     } catch (error: any) {
       this.logger.error(`Failed to update post ${postId}: ${error?.message || String(error)}`);
       throw error;
@@ -372,8 +385,13 @@ export class PostService {
       dto.status,
     )
 
+    const response = this.formatPostResponse(post)
+    this.notificationService.emitAdminEvent('post:status_updated', response)
+    this.notificationService.emitPostEvent(postId, 'post:status_updated', response)
+    this.notificationService.emitFeedEvent('post:status_updated', response)
+
     return {
-      post: this.formatPostResponse(post),
+      post: response,
       aiFeedback,
     }
   }
@@ -446,6 +464,8 @@ export class PostService {
       await post.save();
 
       this.logger.log(`Post ${postId} deleted by ${authorDisplayId}`);
+      this.notificationService.emitPostEvent(postId, 'post:deleted', { postId });
+      this.notificationService.emitFeedEvent('post:deleted', { postId });
 
       return { message: 'Bài viết đã được xóa' };
     } catch (error: any) {
@@ -497,6 +517,15 @@ export class PostService {
         title: 'Bạn đã nhận được thêm một lượt like',
         body: `Bài viết đã nhận được thêm một lượt like bởi ${userDisplayId}, Tổng lượt like: ${post.likeCount}`
       })
+
+      const likePayload = {
+        postId,
+        isLiked: !isLiked,
+        likeCount: post.likeCount,
+        actorDisplayId: userDisplayId,
+      };
+      this.notificationService.emitPostEvent(postId, 'post:liked', likePayload);
+      this.notificationService.emitFeedEvent('post:liked', likePayload);
 
       return {
         isLiked: !isLiked,
@@ -627,6 +656,27 @@ export class PostService {
     }
 
     return 'NEUTRAL';
+  }
+
+  private normalizeQueryValues(value: string | string[]): string[] {
+    const values = Array.isArray(value) ? value : [value];
+    return values
+      .flatMap((item) => item.split(','))
+      .map((item) => item.trim().toLowerCase())
+      .filter(Boolean);
+  }
+
+  private validateQueryValues(
+    values: string[],
+    allowedValues: string[],
+    fieldName: string,
+  ): void {
+    const invalidValues = values.filter((value) => !allowedValues.includes(value));
+    if (values.length === 0 || invalidValues.length > 0) {
+      throw new BadRequestException(
+        `${fieldName} must be one of: ${allowedValues.join(', ')}`,
+      );
+    }
   }
 
   /**

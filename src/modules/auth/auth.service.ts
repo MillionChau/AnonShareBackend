@@ -50,6 +50,16 @@ export class AuthService {
         });
       }
 
+      if (!password) {
+        throw new BadRequestException(
+          'Thiết bị này đã có anonymousId. Vui lòng nhập mật khẩu để đăng nhập lại.',
+        );
+      }
+
+      if (!this.verifyPassword(password, user.passwordHash)) {
+        throw new UnauthorizedException('Mật khẩu anonymousId hiện tại không đúng.');
+      }
+
       if (!user.displayId) {
         this.logger.warn(
           `Existing anonymous user missing displayId; regenerating for fingerprint ${fingerprint.substring(0, 8)}...`,
@@ -59,7 +69,9 @@ export class AuthService {
         await user.save();
       }
 
-      this.logger.log(`Returning session for existing user: ${user.displayId}`);
+      user.lastSeenAt = new Date();
+      await user.save();
+      this.logger.log(`Authenticated existing device anonymous user: ${user.displayId}`);
     } else {
       if (!password) {
         throw new BadRequestException('Password is required when creating a new anonymous user.');
@@ -179,8 +191,9 @@ export class AuthService {
     if (!user.displayId) {
       user.displayId = displayId;
       user.anonymousIdHash = this.hashAnonymousId(displayId);
-      await user.save();
     }
+    user.lastSeenAt = new Date();
+    await user.save();
 
     const token = this.jwtService.sign({ sub: displayId });
     this.logger.log(`Authenticated anonymous user: ${anonymousId}`);
@@ -241,6 +254,17 @@ export class AuthService {
   ): Promise<AnonymousUserDocument | null> {
     const anonymousIdHash = this.hashAnonymousId(anonymousId);
     return this.userModel.findOne({ anonymousIdHash, isBanned: false });
+  }
+
+  async validateAnonymousToken(token: string): Promise<AnonymousUserDocument | null> {
+    let payload: { sub: string };
+    try {
+      payload = this.jwtService.verify(token);
+    } catch {
+      return null;
+    }
+
+    return this.findByAnonymousId(payload.sub);
   }
 
   /**

@@ -224,6 +224,18 @@ export class NotificationService {
 
   // ─── Private Utils ─────────────────────────────────────────────────────────
 
+  emitFeedEvent(event: string, payload: unknown): void {
+    this.notificationGateway.emitFeedEvent(event, payload);
+  }
+
+  emitPostEvent(postId: string, event: string, payload: unknown): void {
+    this.notificationGateway.emitPostEvent(postId, event, payload);
+  }
+
+  emitAdminEvent(event: string, payload: unknown): void {
+    this.notificationGateway.emitAdminEvent(event, payload);
+  }
+
   private assertObjectId(id: string): void {
     if (!Types.ObjectId.isValid(id)) {
       throw new BadRequestException('ID thông báo không hợp lệ.');

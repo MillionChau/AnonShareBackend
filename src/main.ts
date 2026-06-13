@@ -30,7 +30,7 @@ async function bootstrap() {
       ? ['https://your-frontend-domain.com'] 
       : '*',
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-admin-master-key'],
   });
 
   app.setGlobalPrefix('api/v1');

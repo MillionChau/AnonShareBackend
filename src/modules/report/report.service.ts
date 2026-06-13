@@ -125,8 +125,12 @@ export class ReportService {
         },
       });
 
+      const reportDto = this.toDto(report);
+      this.notificationService.emitAdminEvent('report:created', reportDto);
+      this.notificationService.emitPostEvent(targetId, 'report:created', reportDto);
+
       return {
-        report: this.toDto(report),
+        report: reportDto,
         message: 'Báo cáo đã gửi thành công!',
       };
     } catch (error) {
@@ -247,7 +251,10 @@ export class ReportService {
       `Report ${reportId} marked as reviewed by admin ${adminDisplayId}`,
     );
 
-    return this.toDto(doc);
+    const reportDto = this.toDto(doc);
+    this.notificationService.emitAdminEvent('report:reviewed', reportDto);
+
+    return reportDto;
   }
 
   /**
@@ -296,7 +303,15 @@ export class ReportService {
       },
     });
 
-    return this.toDto(doc);
+    const reportDto = this.toDto(doc);
+    this.notificationService.emitAdminEvent('report:resolved', reportDto);
+    this.notificationService.emitPostEvent(
+      doc.targetId.toString(),
+      'report:resolved',
+      reportDto,
+    );
+
+    return reportDto;
   }
 
   /**
@@ -312,5 +327,7 @@ export class ReportService {
     if (result.deletedCount === 0) {
       throw new NotFoundException('Không tìm thấy báo cáo.');
     }
+
+    this.notificationService.emitAdminEvent('report:deleted', { reportId });
   }
 }
