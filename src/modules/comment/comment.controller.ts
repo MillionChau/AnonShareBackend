@@ -8,6 +8,7 @@ import {
   Delete,
   Patch,
   Body,
+  ForbiddenException,
   Param,
   Query,
   HttpCode,
@@ -56,6 +57,33 @@ export class CommentController {
     @AnonId() authorDisplayId: string,
   ): Promise<PaginatedCommentsDto> {
     return this.commentService.getCommentsByPost(postId, query, authorDisplayId);
+  }
+
+  @Get('user/:displayId')
+  @UseGuards(AnonKeyGuard)
+  @HttpCode(HttpStatus.OK)
+  async getUserComments(
+    @Param('displayId') displayId: string,
+    @Query() query: GetCommentsQueryDto,
+    @AnonId() authorDisplayId: string,
+  ): Promise<PaginatedCommentsDto> {
+    if (displayId !== authorDisplayId) {
+      throw new ForbiddenException('You can only view your own comments');
+    }
+
+    return this.commentService.getUserComments(displayId, query, authorDisplayId);
+  }
+
+  @Get('admin/list')
+  @UseGuards(AdminGuard)
+  @UseInterceptors(AdminAuditInterceptor)
+  @HttpCode(HttpStatus.OK)
+  async getAdminComments(
+    @Query() query: GetCommentsQueryDto,
+    @Query('postId') postId?: string,
+    @Query('moderation') moderation?: string,
+  ): Promise<PaginatedCommentsDto> {
+    return this.commentService.getAdminComments(query, postId, moderation);
   }
 
   @Get(':commentId/replies')

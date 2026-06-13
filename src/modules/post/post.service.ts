@@ -115,7 +115,7 @@ export class PostService {
         `Post created: ${post._id} by ${authorDisplayId} with status ${contentStatus}`,
       );
 
-      const response = this.formatPostResponse(post);
+      const response = this.formatPostResponse(post, authorDisplayId);
       this.notificationService.emitAdminEvent('post:created', response);
       if (contentStatus === 'approved') {
         this.notificationService.emitFeedEvent('post:created', response);
@@ -136,6 +136,7 @@ export class PostService {
     limit: number = 10,
     contentStatus?: string | string[],
     visibility?: string | string[],
+    currentUserDisplayId?: string,
   ): Promise<PaginatedPostsDto> {
     try {
       page = Math.max(1, page);
@@ -174,7 +175,7 @@ export class PostService {
       ]);
 
       const data = posts.map((post) =>
-        this.formatPostResponse(post as any),
+        this.formatPostResponse(post as any, currentUserDisplayId),
       );
 
       return {
@@ -195,6 +196,8 @@ export class PostService {
    */
   async getPostById(
     postId: string,
+    currentUserDisplayId?: string,
+    options: { allowNonApproved?: boolean } = {},
   ): Promise<PostResponseDto> {
     try {
       // Validate MongoDB ObjectId
@@ -213,9 +216,17 @@ export class PostService {
       }
 
       // Tăng view count (không await, chạy background)
+      if (
+        !options.allowNonApproved &&
+        post.contentStatus !== 'approved' &&
+        post.authorDisplayId !== currentUserDisplayId
+      ) {
+        throw new NotFoundException('BÃ i viáº¿t khÃ´ng tÃ¬m tháº¥y');
+      }
+
       this.incrementViewCount(postId);
 
-      return this.formatPostResponse(post);
+      return this.formatPostResponse(post, currentUserDisplayId);
     } catch (error: any) {
       this.logger.error(`Failed to get post ${postId}: ${error?.message || String(error)}`);
       throw error;
@@ -230,17 +241,26 @@ export class PostService {
     page: number = 1,
     limit: number = 10,
     currentUserDisplayId?: string,
+    contentStatus?: string | string[],
   ): Promise<PaginatedPostsDto> {
     try {
       page = Math.max(1, page);
       limit = Math.max(1, Math.min(limit, 100));
       const skip = (page - 1) * limit;
 
-      const query = {
+      const query: Record<string, any> = {
         authorDisplayId,
         isDeleted: false,
-        contentStatus: 'approved',
       };
+      const isOwner = currentUserDisplayId === authorDisplayId;
+
+      if (contentStatus !== undefined && isOwner) {
+        const statuses = this.normalizeQueryValues(contentStatus);
+        this.validateQueryValues(statuses, this.allowedContentStatuses, 'contentStatus');
+        query.contentStatus = statuses.length > 1 ? { $in: statuses } : statuses[0];
+      } else {
+        query.contentStatus = 'approved';
+      }
 
       const [posts, total] = await Promise.all([
         this.postModel
@@ -253,7 +273,7 @@ export class PostService {
       ]);
 
       const data = posts.map((post) =>
-        this.formatPostResponse(post as any),
+        this.formatPostResponse(post as any, currentUserDisplayId),
       );
 
       return {
@@ -511,12 +531,18 @@ export class PostService {
         `Post ${postId} ${isLiked ? 'unliked' : 'liked'} by ${userDisplayId}`,
       );
 
-      await this.notificationService.createNotification({
-        recipientDisplayId: post.authorDisplayId,
-        type: NotificationType.SYSTEM,
-        title: 'Bạn đã nhận được thêm một lượt like',
-        body: `Bài viết đã nhận được thêm một lượt like bởi ${userDisplayId}, Tổng lượt like: ${post.likeCount}`
-      })
+      if (post.authorDisplayId !== userDisplayId) {
+        await this.notificationService.createNotification({
+          recipientDisplayId: post.authorDisplayId,
+          type: NotificationType.SYSTEM,
+          title: 'Bạn đã nhận được thêm một lượt like',
+          body: `Bài viết đã nhận được thêm một lượt like bởi ${userDisplayId}, Tổng lượt like: ${post.likeCount}`,
+          metadata: {
+            postId,
+            actorDisplayId: userDisplayId,
+          },
+        });
+      }
 
       const likePayload = {
         postId,
@@ -573,14 +599,19 @@ export class PostService {
         moderation,
       );
       const normalizedSentiment = this.normalizeSentimentResult(sentiment);
+      const moderationConfidence = this.extractConfidence(moderation, confidence);
+      const sentimentConfidence = this.extractConfidence(sentiment);
 
       return {
         isSpam: false,
         isMalicious: false,
-        confidence: Number(confidence || 0),
+        confidence: moderationConfidence,
+        moderationSource: this.extractSource(moderation),
         categories: categories || [],
         moderate: normalizedModerate,
         sentiment: normalizedSentiment,
+        sentimentConfidence,
+        sentimentSource: this.extractSource(sentiment),
       };
     } catch (error: any) {
       const axiosError = error as AxiosError;
@@ -658,6 +689,29 @@ export class PostService {
     return 'NEUTRAL';
   }
 
+  private extractConfidence(value: unknown, fallback?: unknown): number {
+    const direct = this.extractNumber(value, 'confidence');
+    if (direct !== null) return direct;
+    const fallbackNumber = this.extractNumber(fallback);
+    return fallbackNumber ?? 0;
+  }
+
+  private extractSource(value: unknown): string | null {
+    if (typeof value === 'object' && value !== null && 'source' in value) {
+      const source = (value as { source?: unknown }).source;
+      return typeof source === 'string' ? source : null;
+    }
+    return null;
+  }
+
+  private extractNumber(value: unknown, key?: string): number | null {
+    const raw = key && typeof value === 'object' && value !== null
+      ? (value as Record<string, unknown>)[key]
+      : value;
+    const parsed = typeof raw === 'number' ? raw : Number(raw);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
   private normalizeQueryValues(value: string | string[]): string[] {
     const values = Array.isArray(value) ? value : [value];
     return values
@@ -711,7 +765,12 @@ export class PostService {
       likeCount: post.likeCount || 0,
       commentCount: post.commentCount || 0,
       viewCount: post.viewCount || 0,
-      isLiked: false,
+      isLiked: currentUserDisplayId
+        ? (post.likedBy ?? []).includes(currentUserDisplayId)
+        : false,
+      isOwner: currentUserDisplayId
+        ? post.authorDisplayId === currentUserDisplayId
+        : false,
       visibility: post.visibility,
       createdAt: post.createdAt,
       updatedAt: post.updatedAt,

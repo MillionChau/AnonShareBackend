@@ -12,9 +12,12 @@ import {
   HttpCode,
   HttpStatus,
   Patch,
+  Req,
 } from '@nestjs/common';
+import { Request } from 'express';
 import { AnonKeyGuard } from '../auth/guards/anon-key.guard';
 import { AnonId } from '../auth/decorators/anon-id.decorator';
+import { AuthService } from '../auth/auth.service';
 import { AdminGuard } from '../admin/guards/admin.guard';
 import { AdminAuditInterceptor } from '../admin/interceptors/admin-audit.interceptor';
 import { PostService } from './post.service';
@@ -29,7 +32,10 @@ import {
 
 @Controller('posts')
 export class PostController {
-  constructor(private readonly postService: PostService) {}
+  constructor(
+    private readonly postService: PostService,
+    private readonly authService: AuthService,
+  ) {}
 
   /**
    * POST /posts
@@ -52,6 +58,26 @@ export class PostController {
    */
   @Get()
   async getPosts(
+    @Req() req: Request,
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 10,
+    @Query('contentStatus') contentStatus?: string | string[],
+    @Query('status') status?: string | string[],
+    @Query('visibility') visibility?: string | string[],
+  ): Promise<PaginatedPostsDto> {
+    return this.postService.getPosts(
+      +page,
+      +limit,
+      contentStatus ?? status,
+      visibility,
+      await this.getOptionalAnonymousId(req),
+    );
+  }
+
+  @Get('admin/list')
+  @UseGuards(AdminGuard)
+  @UseInterceptors(AdminAuditInterceptor)
+  async getAdminPosts(
     @Query('page') page: number = 1,
     @Query('limit') limit: number = 10,
     @Query('contentStatus') contentStatus?: string | string[],
@@ -72,9 +98,10 @@ export class PostController {
    */
   @Get(':id')
   async getPostById(
+    @Req() req: Request,
     @Param('id') postId: string,
   ): Promise<PostResponseDto> {
-    return this.postService.getPostById(postId);
+    return this.postService.getPostById(postId, await this.getOptionalAnonymousId(req));
   }
 
   /**
@@ -84,11 +111,20 @@ export class PostController {
    */
   @Get('user/:displayId')
   async getUserPosts(
+    @Req() req: Request,
     @Param('displayId') authorDisplayId: string,
     @Query('page') page: number = 1,
     @Query('limit') limit: number = 10,
+    @Query('contentStatus') contentStatus?: string | string[],
+    @Query('status') status?: string | string[],
   ): Promise<PaginatedPostsDto> {
-    return this.postService.getUserPosts(authorDisplayId, +page, +limit);
+    return this.postService.getUserPosts(
+      authorDisplayId,
+      +page,
+      +limit,
+      await this.getOptionalAnonymousId(req),
+      contentStatus ?? status,
+    );
   }
 
   /**
@@ -142,5 +178,17 @@ export class PostController {
     @AnonId() userDisplayId: string,
   ): Promise<{ isLiked: boolean; likeCount: number }> {
     return this.postService.toggleLike(postId, userDisplayId);
+  }
+
+  private async getOptionalAnonymousId(req: Request): Promise<string | undefined> {
+    const authHeader = req.headers['authorization'];
+    if (typeof authHeader !== 'string' || !authHeader.startsWith('Bearer ')) {
+      return undefined;
+    }
+
+    const user = await this.authService.validateAnonymousToken(
+      authHeader.replace('Bearer ', '').trim(),
+    );
+    return user?.displayId;
   }
 }

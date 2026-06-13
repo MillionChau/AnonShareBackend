@@ -77,12 +77,20 @@ export class ReportService {
       let targetSnapshot: string;
 
       if (targetType === ReportTargetType.POST) {
-        const post = await this.postService.getPostById(targetId);
+        const post = await this.postService.getPostById(
+          targetId,
+          undefined,
+          { allowNonApproved: true },
+        );
         if (!post) throw new NotFoundException('Bài viết không tồn tại.');
         authorId = post.authorDisplayId;
         targetSnapshot = post.content;
       } else {
-        const comment = await this.commentService.getCommentById(targetId);
+        const comment = await this.commentService.getCommentById(
+          targetId,
+          undefined,
+          { allowNonApproved: true },
+        );
         if (!comment) throw new NotFoundException('Bình luận không tồn tại.');
         authorId = comment.authorDisplayId;
         targetSnapshot = comment.content;

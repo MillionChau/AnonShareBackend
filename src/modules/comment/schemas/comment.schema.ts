@@ -34,9 +34,12 @@ export class Comment {
     isSpam?: boolean;
     isMalicious?: boolean;
     confidence?: number;
+    moderationSource?: string | null;
     categories?: string[];
     moderate?: 'REJECTED' | 'FLAGGED' | 'APPROVED';
     sentiment?: 'NEGATIVE' | 'NEUTRAL' | 'POSITIVE';
+    sentimentConfidence?: number | null;
+    sentimentSource?: string | null;
   };
 
   @Prop({ default: 0 })

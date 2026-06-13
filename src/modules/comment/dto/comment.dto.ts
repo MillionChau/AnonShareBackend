@@ -9,6 +9,7 @@ import {
     IsMongoId,
     IsNumber,
     IsEnum,
+    IsIn,
     Min,
     Max,
 } from 'class-validator';
@@ -63,6 +64,14 @@ export class GetCommentsQueryDto {
     @IsOptional()
     @IsEnum(ContentStatus)
     contentStatus?: ContentStatus;
+
+    @IsOptional()
+    @IsMongoId()
+    postId?: string;
+
+    @IsOptional()
+    @IsIn(['flagged'])
+    moderation?: 'flagged';
 }
 
 export enum CommentStatus {
@@ -84,9 +93,12 @@ export class CommentAnalysisDto {
     isSpam: boolean;
     isMalicious: boolean;
     confidence: number;
+    moderationSource?: string | null;
     categories: string[];
     moderate: 'REJECTED' | 'FLAGGED' | 'APPROVED';
     sentiment: 'NEGATIVE' | 'NEUTRAL' | 'POSITIVE';
+    sentimentConfidence?: number | null;
+    sentimentSource?: string | null;
 }
 
 export class CommentDto {

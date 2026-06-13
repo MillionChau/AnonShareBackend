@@ -372,9 +372,108 @@ export class CommentService {
     }
   }
 
+  async getUserComments(
+    authorDisplayId: string,
+    query: GetCommentsQueryDto,
+    currentUserDisplayId?: string,
+  ): Promise<PaginatedCommentsDto> {
+    try {
+      const page = Math.max(1, query.page ?? 1);
+      const limit = Math.max(1, Math.min(query.limit ?? 20, 100));
+      const skip = (page - 1) * limit;
+
+      const filter: Record<string, any> = {
+        authorDisplayId,
+        isDeleted: false,
+      };
+
+      if (query.contentStatus) {
+        filter.contentStatus = query.contentStatus;
+      }
+
+      const [comments, total] = await Promise.all([
+        this.commentModel
+          .find(filter)
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(limit)
+          .lean(),
+        this.commentModel.countDocuments(filter),
+      ]);
+
+      return {
+        data: comments.map((comment) =>
+          this.formatCommentResponse(comment as any, currentUserDisplayId),
+        ),
+        total,
+        page,
+        limit,
+        hasMore: skip + limit < total,
+      };
+    } catch (error: any) {
+      this.logger.error(
+        `Failed to get comments for ${authorDisplayId}: ${error?.message || String(error)}`,
+      );
+      throw error;
+    }
+  }
+
+  async getAdminComments(
+    query: GetCommentsQueryDto,
+    postId?: string,
+    moderation?: string,
+  ): Promise<PaginatedCommentsDto> {
+    try {
+      const page = Math.max(1, query.page ?? 1);
+      const limit = Math.max(1, Math.min(query.limit ?? 20, 100));
+      const skip = (page - 1) * limit;
+
+      const filter: Record<string, any> = {
+        isDeleted: false,
+      };
+
+      if (postId) {
+        if (!Types.ObjectId.isValid(postId)) {
+          throw new BadRequestException('Invalid post ID format');
+        }
+        filter.postId = new Types.ObjectId(postId);
+      }
+
+      if (query.contentStatus) {
+        filter.contentStatus = query.contentStatus;
+      }
+
+      if (moderation === 'flagged') {
+        filter['aiAnalysis.moderate'] = 'FLAGGED';
+      }
+
+      const [comments, total] = await Promise.all([
+        this.commentModel
+          .find(filter)
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(limit)
+          .lean(),
+        this.commentModel.countDocuments(filter),
+      ]);
+
+      return {
+        data: comments.map((comment) => this.formatCommentResponse(comment as any)),
+        total,
+        page,
+        limit,
+        hasMore: skip + limit < total,
+      };
+    } catch (error: any) {
+      this.logger.error(`Failed to get admin comments: ${error?.message || String(error)}`);
+      throw error;
+    }
+  }
+
   async getCommentById(
     commentId: string,
     currentUserDisplayId?: string,
+    options: { allowNonApproved?: boolean } = {},
   ): Promise<CommentDto> {
     try {
       if (!Types.ObjectId.isValid(commentId)) {
@@ -385,6 +484,14 @@ export class CommentService {
 
       if (!comment || comment.isDeleted) {
         throw new NotFoundException('Bình luận không tìm thấy');
+      }
+
+      if (
+        !options.allowNonApproved &&
+        comment.contentStatus !== 'approved' &&
+        comment.authorDisplayId !== currentUserDisplayId
+      ) {
+        throw new NotFoundException('BÃ¬nh luáº­n khÃ´ng tÃ¬m tháº¥y');
       }
 
       return this.formatCommentResponse(comment, currentUserDisplayId);
@@ -653,14 +760,19 @@ export class CommentService {
 
       const { accepted, moderation, sentiment, confidence, categories } =
         response.data || {};
+      const moderationConfidence = this.extractConfidence(moderation, confidence);
+      const sentimentConfidence = this.extractConfidence(sentiment);
 
       return {
         isSpam: false,
         isMalicious: false,
-        confidence: Number(confidence || 0),
+        confidence: moderationConfidence,
+        moderationSource: this.extractSource(moderation),
         categories: categories || [],
         moderate: this.normalizeModerateResult(accepted, moderation),
         sentiment: this.normalizeSentimentResult(sentiment),
+        sentimentConfidence,
+        sentimentSource: this.extractSource(sentiment),
       };
     } catch (error: any) {
       const axiosError = error as AxiosError;
@@ -726,6 +838,29 @@ export class CommentService {
     }
 
     return 'NEUTRAL';
+  }
+
+  private extractConfidence(value: unknown, fallback?: unknown): number {
+    const direct = this.extractNumber(value, 'confidence');
+    if (direct !== null) return direct;
+    const fallbackNumber = this.extractNumber(fallback);
+    return fallbackNumber ?? 0;
+  }
+
+  private extractSource(value: unknown): string | null {
+    if (typeof value === 'object' && value !== null && 'source' in value) {
+      const source = (value as { source?: unknown }).source;
+      return typeof source === 'string' ? source : null;
+    }
+    return null;
+  }
+
+  private extractNumber(value: unknown, key?: string): number | null {
+    const raw = key && typeof value === 'object' && value !== null
+      ? (value as Record<string, unknown>)[key]
+      : value;
+    const parsed = typeof raw === 'number' ? raw : Number(raw);
+    return Number.isFinite(parsed) ? parsed : null;
   }
 
   private async sendFeedbackToAI(

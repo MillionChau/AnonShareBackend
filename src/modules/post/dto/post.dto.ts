@@ -71,7 +71,8 @@ export class PostResponseDto {
   likeCount: number;
   commentCount: number;
   viewCount: number;
-  isLiked: boolean; 
+  isLiked: boolean;
+  isOwner: boolean;
   visibility: string;
   createdAt: Date;
   updatedAt: Date;
@@ -100,9 +101,12 @@ export class PostAnalysisDto {
   isSpam: boolean;
   isMalicious: boolean;
   confidence: number;
+  moderationSource?: string | null;
   categories: string[];
   moderate: 'REJECTED' | 'FLAGGED' | 'APPROVED';
   sentiment: 'NEGATIVE' | 'NEUTRAL' | 'POSITIVE';
+  sentimentConfidence?: number | null;
+  sentimentSource?: string | null;
 }
 
 export class UpdatePostStatusResponseDto {
